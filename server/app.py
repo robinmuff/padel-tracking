@@ -30,6 +30,8 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import padel  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import estimate  # noqa: E402
 
 RESULT_DIR = os.path.join(ROOT, "result")
 COURT_DIR = os.path.join(ROOT, "courts")
@@ -235,6 +237,11 @@ def api_create_job():
     params["skip_pauses"] = bool(p.get("skip_pauses", True))
     job = {"id": job_id, "name": name, "params": params,
            "created": datetime.now().isoformat(timespec="seconds")}
+    try:
+        job["estimate_s"] = estimate.estimate(params, ROOT, RESULT_DIR, VIDEO_DIR,
+                                              os.path.join(ROOT, "models"))["total_s"]
+    except Exception:
+        pass
     write_job(job)
     launch(job)
     return jsonify(job), 201
@@ -285,6 +292,18 @@ def api_delete(job_id):
 def api_log(job_id):
     job_dir(job_id)
     return log_tail(job_id, 20_000), 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+@app.post("/api/estimate")
+def api_estimate():
+    """Geschaetzte Dauer fuer die Formular-Eingaben (ohne etwas zu starten)."""
+    p = request.get_json(force=True)
+    if not (p.get("video") or "").strip():
+        return jsonify(error="Video fehlt"), 400
+    try:
+        return jsonify(estimate.estimate(p, ROOT, RESULT_DIR, VIDEO_DIR, os.path.join(ROOT, "models")))
+    except Exception as exc:            # ungueltiger Link, Zeit, nicht lesbares Video ...
+        return jsonify(error=str(exc).splitlines()[0][:200]), 400
 
 
 @app.get("/api/courts")

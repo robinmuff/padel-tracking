@@ -1138,11 +1138,14 @@ def main():
     args = ap.parse_args()
 
     start, end = parse_time(args.start), parse_time(args.end)
+    # Messwerte fuer die Zeitschaetzung kuenftiger Analysen (timing.json)
+    timing, t_mark = {}, time.time()
     if is_url(args.video):
         if start is None:
             start = youtube_start(args.video)
         # ganzes Video einmal laden (schneller als Ausschnitte), dann lokal springen
         video, title = download_video(args.video, height=args.height)
+        timing["download_s"] = round(time.time() - t_mark, 1)
     else:
         video, title = args.video, os.path.basename(args.video)
 
@@ -1172,10 +1175,12 @@ def main():
           f"{fmt_time((first_frame + n_frames) / fps)} ({n_frames} Frames)")
 
     # ---- 1. Durchgang: Spieler + Ballkandidaten -----------------------------
+    t_mark = time.time()
     players_tr = PlayerTracker(court, args.player_model)
     ball_det = BallDetector(args.ball_model)
     split_names = lambda v: [n.strip() for n in v.split(",") if n.strip()]
     scoreboard = Scoreboard()
+    timing["load_s"] = round(time.time() - t_mark, 1)
     sb_every = int(2 * fps)
     players_per_frame, peaks, sb_readings = [], [], []
     # Zwischenspeicher: lange Laeufe koennen nach einem Abbruch weitermachen
@@ -1193,9 +1198,14 @@ def main():
 
     start_idx = len(peaks)
     prog = Progress("Erkennung", n_frames, fps, first_frame)
+    t_mark = time.time()
     stats_active = detect_pass(cap, first_frame, start_idx, n_frames, fps, players_tr, ball_det,
                                scoreboard, sb_every, players_per_frame, peaks, sb_readings,
                                args.player_every, not args.no_skip, prog, save_cache)
+    timing.update(detect_s=round(time.time() - t_mark, 1),
+                  processed_s=round((len(peaks) - start_idx) / fps, 1),
+                  active_s=round((stats_active if stats_active is not None
+                                  else len(peaks) - start_idx) / fps, 1))
     save_cache()
     if stats_active is not None:
         print(f"Voll analysiert: {fmt_time(stats_active / fps)} von "
@@ -1210,6 +1220,7 @@ def main():
         sb_readings.append((extra, scoreboard.read(frame)))
 
     # ---- 2. Durchgang: Ballbahn, Schlaege, Ballwechsel ----------------------
+    t_mark = time.time()
     path = build_ball_path(peaks)
     hits = detect_hits(path, players_per_frame, fps)
     rallies = build_rallies(hits, path, court, fps, first_frame / fps)
@@ -1229,12 +1240,15 @@ def main():
         if verbose and r.score_after:
             print(f"  Neuer Stand: {r.score_after}")
 
+    timing["eval_s"] = round(time.time() - t_mark, 1)
     # ---- 3. Durchgang: Video schreiben (abschaltbar mit --no-video) ---------
+    t_mark = time.time()
     if args.no_video:
         cap.release()
     else:
         render_video(cap, first, first_frame, fps, court, players_per_frame, path, rallies,
                      args.out_dir, args.show)
+        timing["render_s"] = round(time.time() - t_mark, 1)
 
     with open(os.path.join(args.out_dir, "events.json"), "w", encoding="utf-8") as f:
         json.dump([asdict(r) for r in rallies], f, indent=2, ensure_ascii=False)
@@ -1252,6 +1266,11 @@ def main():
         print(f"  {name}: " + ", ".join(f"{k}={v}" for k, v in sorted(stats[name].items())))
     write_dashboard(args.out_dir, title, args.video, first_frame / fps, fps, rallies, stats,
                     len(peaks) / fps, original_video=video if args.no_video else None)
+    timing.update(range_s=round(len(peaks) / fps, 1), player_every=args.player_every,
+                  skip_pauses=not args.no_skip, render_video=not args.no_video,
+                  coreml=coreml_available(), finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
+    with open(os.path.join(args.out_dir, "timing.json"), "w", encoding="utf-8") as f:
+        json.dump(timing, f, indent=2)
     print(f"Gespeichert in {args.out_dir}/: " + ("" if args.no_video else "analyse.mp4, ")
           + "events.json, stats.csv, dashboard.html")
 

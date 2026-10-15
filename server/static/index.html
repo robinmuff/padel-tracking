@@ -15,6 +15,9 @@
                   font-size: 13px; color: var(--muted); }
   .job-actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
   .empty { color: var(--muted); padding: 8px 0; }
+  .estimate { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--bg); }
+  .estimate .big { font-size: 18px; font-weight: 700; }
+  .estimate .parts { font-size: 13px; color: var(--muted); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -71,6 +74,7 @@
         <input type="text" name="lefties" placeholder="z.B. Navarro">
       </label>
 
+      <div class="full estimate" id="estimate"><span class="muted">Video und Zeitraum angeben, um die Dauer zu schätzen.</span></div>
       <div class="full row">
         <button class="primary" type="submit" id="submit">Analyse starten</button>
         <span class="error" id="formError"></span>
@@ -119,6 +123,39 @@ $("#form").addEventListener("submit", async e => {
   finally { $("#submit").disabled = false; }
 });
 
+// Zeitschaetzung (live beim Ausfuellen)
+const dur = s => { s = Math.round(s); if (s < 60) return "unter 1 min";
+  const h = Math.floor(s / 3600), m = Math.round(s % 3600 / 60);
+  return h ? `${h} h ${String(m).padStart(2, "0")} min` : `${m} min`; };
+const clock = s => new Date(Date.now() + s * 1000).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
+let estTimer = null, estSeq = 0;
+function formParams() {
+  const f = new FormData($("#form")), p = Object.fromEntries(f.entries());
+  p.render_video = f.has("render_video"); p.skip_pauses = f.has("skip_pauses");
+  return p;
+}
+function scheduleEstimate() {
+  clearTimeout(estTimer);
+  estTimer = setTimeout(async () => {
+    const p = formParams(), seq = ++estSeq, box = $("#estimate");
+    if (!p.video.trim()) { box.replaceChildren(el("span", { class: "muted" }, "Video und Zeitraum angeben, um die Dauer zu schätzen.")); return; }
+    box.replaceChildren(el("span", { class: "muted" }, "Schätze Dauer …"));
+    try {
+      const e = await api("/api/estimate", { method: "POST", body: JSON.stringify(p) });
+      if (seq !== estSeq) return;
+      box.replaceChildren(
+        el("div", {}, el("span", { class: "big" }, "ca. " + dur(e.total_s)),
+          el("span", { class: "muted" }, ` · fertig etwa um ${clock(e.total_s)} · für ${dur(e.range_s)} Video`)),
+        el("div", { class: "parts" }, e.parts.map(([l, s]) => `${l} ${dur(s)}`).join(" · ")),
+        el("div", { class: "parts" }, "Grundlage: " + e.basis));
+    } catch (err) {
+      if (seq === estSeq) box.replaceChildren(el("span", { class: "muted" }, "Keine Schätzung möglich: " + err.message));
+    }
+  }, 600);
+}
+$("#form").addEventListener("input", scheduleEstimate);
+$("#form").addEventListener("change", scheduleEstimate);
+
 // Jobliste
 const openLogs = new Set();
 function jobView(j) {
@@ -141,6 +178,7 @@ function jobView(j) {
   const box = el("div", { class: "job" },
     el("div", { class: "job-head" }, el("b", {}, j.name), el("span", { class: "pill " + s.state }, s.state), actions),
     el("div", { class: "job-meta" }, `${range} · ${p.render_video ? "mit Video" : "ohne Video"}`
+      + `${j.estimate_s ? " · geschätzt " + dur(j.estimate_s) : ""}`
       + `${p.skip_pauses === false ? " · ohne Pausen-Sprung" : ""} · ${p.video}`));
   if (s.state === "läuft" || s.phase) {
     const label = s.phase === "Fertig" ? (s.message || "Fertig")
