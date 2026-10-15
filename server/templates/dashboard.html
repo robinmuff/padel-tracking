@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Padel-Analyse</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2330; --muted: #677285; --line: #e2e6ec;
+    --t0: #e07b1f; --t1: #1f7ae0; --accent: #12a150; --court: #2d6fb8; --court-line: #ffffffcc;
+    --active: #fff4d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11151c; --panel: #1a2029; --ink: #e8ecf2; --muted: #95a0b2; --line: #2b3340;
+      --t0: #ff9d45; --t1: #4d9bff; --accent: #3fcf7f; --court: #1f4f86; --court-line: #ffffffaa;
+      --active: #3a3320;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 20px 24px 8px; max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .teams { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .team { display: flex; align-items: center; gap: 10px; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; }
+  .team .pts { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .team small { color: var(--muted); display: block; font-size: 12px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--muted); }
+  .dot.t0 { background: var(--t0); } .dot.t1 { background: var(--t1); }
+  main { max-width: 1400px; margin: 0 auto; padding: 8px 24px 40px;
+         display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .video-wrap { padding: 12px; }
+  video { width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; background: #000; display: block; }
+  .now { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+         padding: 10px 2px 2px; min-height: 36px; }
+  .now .label { font-weight: 600; }
+  .now .time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; }
+  .timeline { position: relative; height: 34px; margin: 8px 2px 2px; cursor: pointer; }
+  .timeline .track { position: absolute; left: 0; right: 0; top: 15px; height: 4px;
+                     background: var(--line); border-radius: 2px; }
+  .timeline .rally { position: absolute; top: 12px; height: 10px; min-width: 2px; border-radius: 3px;
+                     background: var(--muted); opacity: .35; }
+  .timeline .rally.point { opacity: .9; }
+  .timeline .rally.t0 { background: var(--t0); } .timeline .rally.t1 { background: var(--t1); }
+  .timeline .head { position: absolute; top: 0; width: 2px; height: 34px; background: var(--ink);
+                    margin-left: -1px; pointer-events: none; }
+  .side { display: flex; flex-direction: column; gap: 20px; }
+  .court-wrap { padding: 12px; }
+  h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); font-weight: 600;
+       text-transform: uppercase; letter-spacing: .04em; }
+  svg.court { width: 100%; height: auto; display: block; }
+  .legend { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .list { padding: 14px; grid-column: 1 / -1; }
+  .list-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .list-head label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .rally-card { border-top: 1px solid var(--line); padding: 12px 0; }
+  .rally-card.nopoint { opacity: .6; }
+  .rally-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-bottom: 8px; cursor: pointer; }
+  .rally-head b { font-size: 16px; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.win { color: var(--ink); font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
+  .toggle { margin-left: auto; font-size: 12px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px;
+       border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr.shot { cursor: pointer; }
+  tr.shot:hover td { background: color-mix(in srgb, var(--line) 45%, transparent); }
+  tr.shot.active td { background: var(--active); }
+  td.num, td.t { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+  .who { display: flex; align-items: center; gap: 8px; }
+  .muted { color: var(--muted); }
+  .stats { padding: 14px; grid-column: 1 / -1; overflow-x: auto; }
+  .stats td, .stats th { text-align: right; } .stats td:first-child, .stats th:first-child { text-align: left; }
+  kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
+        border-radius: 4px; padding: 0 4px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 960px) {
+    main { grid-template-columns: 1fr; padding: 8px 16px 32px; }
+    header { padding: 16px 16px 8px; }
+    .court-wrap { max-width: 360px; }
+    .hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Padel-Analyse</h1>
+  <div class="sub" id="sub"></div>
+  <div class="teams" id="teams"></div>
+</header>
+<main>
+  <section class="panel video-wrap">
+    <video id="video" controls preload="metadata" playsinline></video>
+    <div class="timeline" id="timeline" title="Ballwechsel (Farbe = Gewinnerteam)">
+      <div class="track"></div><div class="head" id="head"></div></div>
+    <div class="now"><span class="label" id="nowLabel">Schlag in der Liste anklicken, um hinzuspringen</span>
+      <span class="time" id="nowTime"></span></div>
+  </section>
+  <aside class="side">
+    <section class="panel court-wrap">
+      <h2 id="courtTitle">Spielzug</h2>
+      <svg class="court" id="court" viewBox="-1.5 -1.5 13 23" aria-label="Platz von oben"></svg>
+      <div class="legend"><span>oben: ferne Seite</span><span>unten: nahe Seite</span></div>
+    </section>
+    <section class="panel court-wrap sub">
+      <kbd>←</kbd> <kbd>→</kbd> vorheriger / nächster Schlag &nbsp; <kbd>Leertaste</kbd> Pause
+    </section>
+  </aside>
+  <section class="panel list">
+    <div class="list-head"><h2>Ballwechsel</h2>
+      <label><input type="checkbox" id="showAll"> auch Sequenzen ohne Punkt zeigen</label></div>
+    <div id="list"></div>
+  </section>
+  <section class="panel stats" id="stats"><h2>Statistik pro Spielerin</h2></section>
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+const video = document.getElementById("video");
+// Entweder das gerenderte analyse.mp4 (startet bei 0) oder das Originalvideo, in dem
+// der analysierte Ausschnitt erst bei video_offset Sekunden beginnt
+const VOFF = DATA.video_offset || 0;
+video.src = DATA.video_src || "analyse.mp4";
+const now = () => video.currentTime - VOFF;
+const seek = t => { video.currentTime = VOFF + Math.max(0, t); };
+const PRE_ROLL = 1.0;   // Sekunden vor dem Schlag starten
+
+const fmt = s => { s = Math.max(0, Math.floor(s));
+  const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
+const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === "class" ? e.className = v : e.setAttribute(k, v);
+  for (const k of kids) e.append(k); return e; };
+
+// Teams: Farbe haengt am Namen (nicht an der Platzseite, die wechselt)
+const TEAMS = DATA.teams || [];
+const teamClass = name => { const i = TEAMS.indexOf(name); return i < 0 ? "" : "t" + i; };
+const shotTeamClass = s => teamClass(s.team_name) || (s.team === "A" ? "t1" : "t0");
+const winnerName = r => r.winner_name || (r.team_names && r.team_names[r.winner_team]) || (r.winner_team ? "Team " + r.winner_team : "");
+const isPoint = r => !!r.winner_team || !!r.winner_name;
+const who = s => s.player_name || (s.team_name ? s.team_name : "Team " + s.team);
+
+// Alle Schlaege flach, mit Videozeit
+const shots = [];
+DATA.rallies.forEach(r => r.shots.forEach((s, i) => shots.push({ ...s, rally: r, idx: i, t: s.frame / DATA.fps })));
+const points = DATA.rallies.filter(isPoint);
+points.forEach((r, i) => r.pointNo = i + 1);
+
+// Kopf
+document.title = "Padel-Analyse – " + (DATA.title || "");
+document.getElementById("title").textContent = DATA.title || "Padel-Analyse";
+const first = DATA.rallies[0], last = DATA.rallies[DATA.rallies.length - 1];
+document.getElementById("sub").textContent = first
+  ? `${first.start_time} – ${last.start_time} · ${points.length} Punkte · ${shots.length} Schläge erkannt`
+  : "Keine Ballwechsel erkannt";
+const teamsBox = document.getElementById("teams");
+for (const name of TEAMS) {
+  const won = points.filter(r => winnerName(r) === name).length;
+  teamsBox.append(el("div", { class: "team" }, el("span", { class: "dot " + teamClass(name) }),
+    el("div", {}, el("span", {}, name), el("small", {}, "Punkte gewonnen")),
+    el("span", { class: "pts" }, String(won))));
+}
+
+// Zeitleiste
+const timeline = document.getElementById("timeline"), head = document.getElementById("head");
+const duration = () => DATA.length || video.duration || (last ? last.end_frame / DATA.fps + 2 : 1);
+function drawTimeline() {
+  timeline.querySelectorAll(".rally").forEach(e => e.remove());
+  const d = duration();
+  for (const r of DATA.rallies) {
+    const a = r.start_frame / DATA.fps, b = r.end_frame / DATA.fps;
+    timeline.append(el("div", { class: `rally ${isPoint(r) ? "point " + teamClass(winnerName(r)) : ""}`,
+      style: `left:${a / d * 100}%;width:${(b - a) / d * 100}%` }));
+  }
+}
+timeline.addEventListener("click", e => {
+  const box = timeline.getBoundingClientRect();
+  seek((e.clientX - box.left) / box.width * duration());
+});
+video.addEventListener("loadedmetadata", () => { if (VOFF && video.currentTime < VOFF) seek(0); drawTimeline(); });
+drawTimeline();
+
+// Liste
+const list = document.getElementById("list"), showAll = document.getElementById("showAll");
+const rowOf = new Map(), cards = [];
+for (const r of DATA.rallies) {
+  const card = el("div", { class: "rally-card" + (isPoint(r) ? "" : " nopoint") });
+  const headEl = el("div", { class: "rally-head" },
+    el("b", {}, isPoint(r) ? "Punkt " + r.pointNo : "Sequenz"), el("span", { class: "muted" }, r.start_time));
+  const w = winnerName(r);
+  if (w) headEl.append(el("span", { class: "pill win" }, el("span", { class: "dot " + teamClass(w) }), "Punkt für " + w));
+  headEl.append(el("span", { class: "pill" }, r.result || "unklar"));
+  if (r.score_before) headEl.append(el("span", { class: "pill hide-sm" },
+    "Stand " + r.score_before + (r.score_after ? " → " + r.score_after : "")));
+  const toggle = el("span", { class: "toggle" }, r.shots.length + " Schläge ▾");
+  headEl.append(toggle);
+  const table = el("table", {}, el("thead", {}, el("tr", {},
+    el("th", {}, "#"), el("th", {}, "Spielzeit"), el("th", { class: "hide-sm" }, "Video"),
+    el("th", {}, "Spielerin"), el("th", {}, "Schlag"), el("th", { class: "hide-sm" }, "Hand"))));
+  const tbody = el("tbody");
+  r.shots.forEach((s, i) => {
+    const shot = shots.find(x => x.rally === r && x.idx === i);
+    const tr = el("tr", { class: "shot", tabindex: "0" },
+      el("td", { class: "num" }, String(i + 1)),
+      el("td", { class: "t" }, s.time),
+      el("td", { class: "t hide-sm" }, fmt(shot.t)),
+      el("td", {}, el("div", { class: "who" }, el("span", { class: "dot " + shotTeamClass(s) }), el("span", {}, who(s)))),
+      el("td", {}, s.shot_type),
+      el("td", { class: "hide-sm muted" }, s.hand || "–"));
+    tr.addEventListener("click", () => jump(shot));
+    tr.addEventListener("keydown", e => { if (e.key === "Enter") jump(shot); });
+    tbody.append(tr); rowOf.set(shot, tr);
+  });
+  table.append(tbody);
+  // bei vielen Punkten nur den aktiven Ballwechsel aufgeklappt zeigen
+  table.hidden = DATA.rallies.length > 3;
+  headEl.addEventListener("click", () => { table.hidden = !table.hidden; if (!table.hidden) jump(shots.find(x => x.rally === r)); });
+  card.append(headEl, table); list.append(card);
+  cards.push({ r, card, table });
+}
+function applyFilter() { for (const c of cards) c.card.hidden = !showAll.checked && !isPoint(c.r); }
+showAll.addEventListener("change", applyFilter); applyFilter();
+
+function jump(shot) {
+  if (!shot) return;
+  seek(shot.t - PRE_ROLL);
+  video.play().catch(() => {});
+}
+
+// Platzgrafik
+const svg = document.getElementById("court"), NS = "http://www.w3.org/2000/svg";
+const S = (tag, attrs) => { const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+let drawn = null;
+function drawCourt(rally, current) {
+  const key = (rally ? rally.id : "-") + ":" + current;
+  if (key === drawn) return; drawn = key;
+  svg.replaceChildren();
+  const css = getComputedStyle(document.documentElement), c = n => css.getPropertyValue(n).trim();
+  svg.append(S("rect", { x: 0, y: 0, width: 10, height: 20, fill: c("--court"), rx: .1 }));
+  for (const [x1, y1, x2, y2] of [[0, 3.05, 10, 3.05], [0, 16.95, 10, 16.95], [5, 3.05, 5, 16.95]])
+    svg.append(S("line", { x1, y1, x2, y2, stroke: c("--court-line"), "stroke-width": .08 }));
+  svg.append(S("line", { x1: -.4, y1: 10, x2: 10.4, y2: 10, stroke: "#fff", "stroke-width": .18 }));
+  if (!rally) return;
+  document.getElementById("courtTitle").textContent =
+    `Spielzug · ${isPoint(rally) ? "Punkt " + rally.pointNo : "Sequenz"} · ${rally.start_time}`;
+  const pts = rally.shots.map((s, i) => ({ ...s, i })).filter(s => s.court_x != null);
+  for (let k = 0; k + 1 < pts.length; k++) {
+    const a = pts[k], b = pts[k + 1];
+    svg.append(S("line", { x1: a.court_x, y1: a.court_y, x2: b.court_x, y2: b.court_y,
+      stroke: "#ffe14d", "stroke-width": .07, "stroke-dasharray": b.i - a.i > 1 ? ".25 .2" : "none",
+      opacity: current == null || b.i <= current ? .95 : .3 }));
+  }
+  for (const p of pts) {
+    const on = p.i === current, past = current == null || p.i <= current;
+    const g = S("g", { opacity: past ? 1 : .35 });
+    g.append(S("circle", { cx: p.court_x, cy: p.court_y, r: on ? .62 : .45,
+      fill: c("--" + shotTeamClass(p)), stroke: on ? "#fff" : "none", "stroke-width": .12 }));
+    const tx = S("text", { x: p.court_x, y: p.court_y + .17, "text-anchor": "middle",
+      "font-size": .5, "font-weight": 700, fill: "#fff" });
+    tx.textContent = p.i + 1;
+    g.append(tx); svg.append(g);
+  }
+}
+
+// Wiedergabe verfolgen
+let activeRow = null, openTable = null;
+function currentShot(t) {
+  let lo = 0, hi = shots.length - 1, cur = null;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (shots[m].t <= t + .05) { cur = shots[m]; lo = m + 1; } else hi = m - 1; }
+  return cur;
+}
+function update() {
+  const t = now(), d = duration();
+  head.style.left = (t / d * 100) + "%";
+  const s = currentShot(t);
+  const inRally = s && t <= s.rally.end_frame / DATA.fps + 1.5;
+  drawCourt(s ? s.rally : DATA.rallies[0], s && inRally ? s.idx : null);
+  const row = s && inRally ? rowOf.get(s) : null;
+  if (row !== activeRow) {
+    activeRow && activeRow.classList.remove("active");
+    if (row) {
+      row.classList.add("active");
+      const table = row.closest("table");
+      if (table.hidden) { openTable && DATA.rallies.length > 3 && (openTable.hidden = true); table.hidden = false; }
+      openTable = table;
+    }
+    activeRow = row;
+  }
+  document.getElementById("nowLabel").textContent = s && inRally
+    ? `${s.idx + 1}. ${who(s)}: ${s.shot_type}`
+    : (s ? (isPoint(s.rally) ? `Punkt ${s.rally.pointNo}: ${s.rally.result}` : "–") : "–");
+  document.getElementById("nowTime").textContent = `Spielzeit ${fmt(DATA.offset + t)}`
+    + (VOFF ? "" : ` · Video ${fmt(t)}`);
+}
+video.addEventListener("timeupdate", update);
+video.addEventListener("seeked", update);
+update();
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  const t = now() + PRE_ROLL;
+  if (e.key === "ArrowRight") { jump(shots.find(s => s.t > t + .1)); e.preventDefault(); }
+  if (e.key === "ArrowLeft") { jump([...shots].reverse().find(s => s.t < t - .6)); e.preventDefault(); }
+  if (e.key === " " && e.target === document.body) { video.paused ? video.play() : video.pause(); e.preventDefault(); }
+});
+
+// Statistik pro Spielerin
+const statsBox = document.getElementById("stats");
+const teamOfPlayer = {};
+for (const s of shots) teamOfPlayer[who(s)] = shotTeamClass(s);
+const names = Object.keys(DATA.stats).sort();
+const preferred = ["Schlaege", "Winner", "Aufschlag", "Grundschlag", "Volley", "Bandeja/Vibora", "Smash", "Vorhand", "Rueckhand"];
+const all = [...new Set(names.flatMap(n => Object.keys(DATA.stats[n])))];
+const cols = [...preferred.filter(c => all.includes(c)), ...all.filter(c => !preferred.includes(c)).sort()];
+const st = el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "Spielerin"), ...cols.map(c => el("th", {}, c)))));
+const sb = el("tbody");
+for (const n of names) sb.append(el("tr", {}, el("td", {}, el("div", { class: "who" },
+  el("span", { class: "dot " + (teamOfPlayer[n] || "") }), el("span", {}, n))),
+  ...cols.map(c => el("td", {}, String(DATA.stats[n][c] || 0)))));
+st.append(sb); statsBox.append(st);
+</script>
+</body>
+</html>

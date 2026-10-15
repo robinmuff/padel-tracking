@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Padel-Analyse</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .job { border-top: 1px solid var(--line); padding: 14px 0; }
+  .job:first-child { border-top: 0; padding-top: 0; }
+  .job-head { display: flex; gap: 10px 14px; align-items: center; flex-wrap: wrap; }
+  .job-head b { font-size: 16px; }
+  .job-meta { font-size: 13px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+  .job-progress { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; margin-top: 10px;
+                  font-size: 13px; color: var(--muted); }
+  .job-actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+  .empty { color: var(--muted); padding: 8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Padel-Analyse</h1>
+    <a href="/calibrate">Platz kalibrieren</a>
+  </header>
+
+  <section class="panel">
+    <h2>Neue Analyse</h2>
+    <form id="form" class="grid" autocomplete="off">
+      <label class="f full">Video
+        <input type="text" name="video" list="videos" required
+               placeholder="YouTube-Link (gern mit ?t=…) oder videos/…mp4">
+        <datalist id="videos"></datalist>
+        <span class="hint">YouTube-Videos werden einmal komplett geladen und danach wiederverwendet.</span>
+      </label>
+      <label class="f">Name
+        <input type="text" name="name" placeholder="z.B. Match 1">
+      </label>
+      <label class="f">Start
+        <input type="text" name="start" placeholder="z.B. 16:15 (leer = ?t= im Link)">
+      </label>
+      <label class="f">Ende
+        <input type="text" name="end" placeholder="z.B. 1:59:10 (leer = Videoende)">
+      </label>
+      <label class="f">Platz-Kalibrierung
+        <select name="court" id="court"></select>
+        <span class="hint"><a href="/calibrate">Neue Kalibrierung anlegen</a> – nötig bei anderer Kamera oder anderem Platz.</span>
+      </label>
+
+      <div class="full"><h2 style="margin:6px 0 0">Einstellungen</h2></div>
+      <label class="check full"><input type="checkbox" name="render_video">
+        <span>Annotiertes Video rendern
+          <small>Spieler-Boxen und Ballspur ins Video zeichnen (analyse.mp4). Kostet ein paar Minuten und
+            ca. 1 GB pro Stunde. Ohne spielt das Dashboard das Originalvideo.</small></span></label>
+      <label class="check full"><input type="checkbox" name="skip_pauses" checked>
+        <span>Pausen überspringen
+          <small>Zwischen den Ballwechseln nur Stichproben nehmen. Schneller und zählt Aufprellen/Zuspielen
+            zwischen den Punkten nicht als Schläge. Nur ausschalten, wenn ein Ballwechsel fehlt.</small></span></label>
+      <label class="f">Spielererkennung
+        <select name="player_every">
+          <option value="1">jedes Bild (genauer, langsamer)</option>
+          <option value="2" selected>jedes 2. Bild (Standard)</option>
+          <option value="3">jedes 3. Bild (schneller)</option>
+        </select>
+      </label>
+      <label class="f">Revés-Spielerinnen
+        <input type="text" name="revers" placeholder="z.B. Navarro, Lobo">
+        <span class="hint">Wer links spielt → Statistik mit Einzelnamen. Leer = „Team (Revés/Drive)“.</span>
+      </label>
+      <label class="f">Linkshänderinnen
+        <input type="text" name="lefties" placeholder="z.B. Navarro">
+      </label>
+
+      <div class="full row">
+        <button class="primary" type="submit" id="submit">Analyse starten</button>
+        <span class="error" id="formError"></span>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Analysen</h2>
+    <div id="jobs"><div class="empty">Lade …</div></div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) e.append(k); return e; };
+const api = async (url, opts = {}) => {
+  const r = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts });
+  const body = r.headers.get("Content-Type")?.includes("json") ? await r.json() : await r.text();
+  if (!r.ok) throw new Error(body.error || body || r.statusText);
+  return body;
+};
+
+// Formular: Auswahllisten
+async function loadOptions() {
+  const [courts, videos] = await Promise.all([api("/api/courts"), api("/api/videos")]);
+  const sel = $("#court"), want = new URLSearchParams(location.search).get("court");
+  sel.replaceChildren(...courts.map(c => el("option", { value: c.path }, c.name)));
+  if (!courts.length) sel.append(el("option", { value: "" }, "– zuerst kalibrieren –"));
+  if (want) sel.value = want;
+  $("#videos").replaceChildren(...videos.map(v => el("option", { value: v })));
+}
+
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = new FormData(e.target), p = Object.fromEntries(f.entries());
+  p.render_video = f.has("render_video");
+  p.skip_pauses = f.has("skip_pauses");
+  $("#formError").textContent = ""; $("#submit").disabled = true;
+  try { await api("/api/jobs", { method: "POST", body: JSON.stringify(p) }); refresh(); }
+  catch (err) { $("#formError").textContent = err.message; }
+  finally { $("#submit").disabled = false; }
+});
+
+// Jobliste
+const openLogs = new Set();
+function jobView(j) {
+  const s = j.status, p = j.params;
+  const range = [p.start || "Anfang", p.end || "Ende"].join(" – ");
+  const actions = el("div", { class: "job-actions" });
+  if (j.has_dashboard && s.state !== "läuft")
+    actions.append(el("a", { class: "btn small primary", href: `/result/${j.id}/dashboard.html`, target: "_blank" }, "Dashboard"));
+  if (s.state === "läuft")
+    actions.append(el("button", { class: "small", onclick: () => act(j, "stop") }, "Stoppen"));
+  if (["gestoppt", "abgebrochen", "Fehler"].includes(s.state))
+    actions.append(el("button", { class: "small", onclick: () => act(j, "resume") }, "Fortsetzen"));
+  if (s.state === "fertig")
+    actions.append(el("button", { class: "small", title: "Auswertung mit aktuellen Einstellungen neu rechnen (Erkennung bleibt)",
+      onclick: () => act(j, "resume") }, "Neu auswerten"));
+  actions.append(el("button", { class: "small", onclick: () => { openLogs.has(j.id) ? openLogs.delete(j.id) : openLogs.add(j.id); refresh(); } }, "Log"));
+  if (s.state !== "läuft")
+    actions.append(el("button", { class: "small danger", onclick: () => del(j) }, "Löschen"));
+
+  const box = el("div", { class: "job" },
+    el("div", { class: "job-head" }, el("b", {}, j.name), el("span", { class: "pill " + s.state }, s.state), actions),
+    el("div", { class: "job-meta" }, `${range} · ${p.render_video ? "mit Video" : "ohne Video"}`
+      + `${p.skip_pauses === false ? " · ohne Pausen-Sprung" : ""} · ${p.video}`));
+  if (s.state === "läuft" || s.phase) {
+    const label = s.phase === "Fertig" ? (s.message || "Fertig")
+      : `${s.phase || "Start"}${s.position ? " · bei " + s.position : ""}${s.fps ? " · " + s.fps + " Bilder/s" : ""}`;
+    box.append(el("div", { class: "job-progress" },
+      el("div", { class: "bar" }, el("div", { style: `width:${s.percent || 0}%` })),
+      el("span", {}, `${s.percent || 0}%`),
+      el("span", {}, label), el("span", {}, s.eta ? "noch ca. " + s.eta : "")));
+  }
+  if (s.state === "Fehler" && s.message) box.append(el("div", { class: "error" }, s.message));
+  if (openLogs.has(j.id)) {
+    const pre = el("pre", { class: "log" }, "…");
+    api(`/api/jobs/${j.id}/log`).then(t => { pre.textContent = t.split("\n").slice(-60).join("\n"); pre.scrollTop = 1e9; });
+    box.append(pre);
+  }
+  return box;
+}
+async function act(j, what) {
+  if (what === "stop" && !confirm(`„${j.name}“ stoppen? Der Fortschritt bleibt bis zum letzten Zwischenstand erhalten.`)) return;
+  try {
+    const body = what === "resume" ? JSON.stringify(Object.fromEntries(
+      ["render_video", "revers", "lefties"].map(k => [k, j.params[k]]))) : undefined;
+    await api(`/api/jobs/${j.id}/${what}`, { method: "POST", body });
+  } catch (err) { alert(err.message); }
+  refresh();
+}
+async function del(j) {
+  if (!confirm(`„${j.name}“ mit allen Ergebnissen endgültig löschen?`)) return;
+  try { await api(`/api/jobs/${j.id}`, { method: "DELETE" }); } catch (err) { alert(err.message); }
+  refresh();
+}
+async function refresh() {
+  try {
+    const jobs = await api("/api/jobs");
+    $("#jobs").replaceChildren(...(jobs.length ? jobs.map(jobView) : [el("div", { class: "empty" }, "Noch keine Analysen.")]));
+  } catch (err) { $("#jobs").replaceChildren(el("div", { class: "error" }, "Server nicht erreichbar: " + err.message)); }
+}
+loadOptions(); refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# Grosse oder lokale Daten
+videos/
+result/
+models/
+.venv/
+
+# Python / macOS
+__pycache__/
+*.pyc
+.DS_Store

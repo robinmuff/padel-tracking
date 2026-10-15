@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Platz kalibrieren</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .stage { position: relative; margin-top: 14px; border-radius: 8px; overflow: hidden; background: #000;
+           cursor: crosshair; user-select: none; }
+  .stage img { display: block; width: 100%; height: auto; }
+  .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .steps { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .step { font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .step.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+  .step.next { color: var(--ink); border-color: var(--accent); font-weight: 600; }
+  .loading { padding: 40px; text-align: center; color: #ccc; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Platz kalibrieren</h1>
+    <a href="/">← zurück zu den Analysen</a>
+  </header>
+
+  <section class="panel">
+    <h2>1. Videobild laden</h2>
+    <div class="grid">
+      <label class="f full">Video
+        <input type="text" id="source" list="videos" placeholder="YouTube-Link oder videos/…mp4">
+        <datalist id="videos"></datalist>
+      </label>
+      <label class="f">Zeitpunkt
+        <input type="text" id="t" placeholder="z.B. 1:04:26 (leer = ?t= im Link)">
+        <span class="hint">Ein Moment, in dem der ganze Platz gut sichtbar ist.</span>
+      </label>
+      <div class="row" style="align-self:center"><button class="primary" id="load">Bild laden</button></div>
+    </div>
+    <div class="error" id="err"></div>
+  </section>
+
+  <section class="panel" id="clickPanel" hidden>
+    <h2>2. Ecken anklicken</h2>
+    <div class="muted">Die vier Ecken der Spielfläche in dieser Reihenfolge anklicken (wo Glaswand und Boden sich treffen).
+      Verdeckte Ecken dürfen ausserhalb des Bilds geschätzt werden – über „Vorschau“ prüfen, ob die Linien passen.</div>
+    <div class="steps" id="steps"></div>
+    <div class="stage" id="stage">
+      <img id="img" alt="Videobild">
+      <svg id="overlay"></svg>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="undo">Letzten Punkt entfernen</button>
+      <button id="reset">Zurücksetzen</button>
+      <button id="preview" disabled>Vorschau der Platzlinien</button>
+    </div>
+  </section>
+
+  <section class="panel" id="savePanel" hidden>
+    <h2>3. Speichern</h2>
+    <div class="row">
+      <input type="text" id="name" placeholder="Name, z.B. milano-court2" style="max-width:320px">
+      <button class="primary" id="save">Speichern und zur Analyse</button>
+    </div>
+    <div class="error" id="saveErr"></div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const LABELS = ["fern links", "fern rechts", "nah rechts", "nah links"];
+let pts = [], frameUrl = "", natural = { w: 1280, h: 720 }, loadingFrame = false;
+
+fetch("/api/videos").then(r => r.json()).then(v =>
+  $("#videos").replaceChildren(...v.map(x => Object.assign(document.createElement("option"), { value: x }))));
+
+function params() {
+  return { source: $("#source").value.trim(), t: $("#t").value.trim() };
+}
+
+$("#load").addEventListener("click", () => {
+  const { source, t } = params();
+  if (!source) { $("#err").textContent = "Bitte ein Video angeben."; return; }
+  $("#err").textContent = "";
+  $("#load").disabled = true; $("#load").textContent = "Lade … (neues YouTube-Video: einige Minuten)";
+  const q = new URLSearchParams({ source }); if (t) q.set("t", t);
+  frameUrl = "/api/frame?" + q;
+  const img = $("#img");
+  loadingFrame = true;
+  img.onload = () => {
+    if (!loadingFrame) return;          // Vorschau/Wiederherstellen: Punkte behalten
+    loadingFrame = false;
+    natural = { w: img.naturalWidth, h: img.naturalHeight };
+    $("#overlay").setAttribute("viewBox", `0 0 ${natural.w} ${natural.h}`);
+    $("#clickPanel").hidden = false; $("#load").disabled = false; $("#load").textContent = "Bild laden";
+    pts = []; draw();
+  };
+  img.onerror = () => { loadingFrame = false; $("#err").textContent = "Bild konnte nicht geladen werden (Link/Zeit prüfen).";
+    $("#load").disabled = false; $("#load").textContent = "Bild laden"; };
+  img.src = frameUrl;
+});
+
+$("#stage").addEventListener("click", e => {
+  if (pts.length >= 4 || !frameUrl) return;
+  const box = $("#img").getBoundingClientRect();
+  pts.push([Math.round((e.clientX - box.left) / box.width * natural.w),
+            Math.round((e.clientY - box.top) / box.height * natural.h)]);
+  draw();
+});
+$("#undo").addEventListener("click", () => { pts.pop(); restore(); draw(); });
+$("#reset").addEventListener("click", () => { pts = []; restore(); draw(); });
+function restore() { if ($("#img").src !== location.origin + frameUrl) $("#img").src = frameUrl; }
+
+function draw() {
+  const svg = $("#overlay"), NS = "http://www.w3.org/2000/svg", r = natural.w / 160;
+  svg.replaceChildren();
+  if (pts.length > 1) {
+    const poly = document.createElementNS(NS, "polyline");
+    poly.setAttribute("points", [...pts, ...(pts.length === 4 ? [pts[0]] : [])].map(p => p.join(",")).join(" "));
+    poly.setAttribute("fill", "none"); poly.setAttribute("stroke", "#ffe14d"); poly.setAttribute("stroke-width", r / 2);
+    svg.append(poly);
+  }
+  pts.forEach((p, i) => {
+    const c = document.createElementNS(NS, "circle");
+    c.setAttribute("cx", p[0]); c.setAttribute("cy", p[1]); c.setAttribute("r", r);
+    c.setAttribute("fill", "#ff3b3b"); c.setAttribute("stroke", "#fff"); c.setAttribute("stroke-width", r / 3);
+    const t = document.createElementNS(NS, "text");
+    t.setAttribute("x", p[0] + r * 1.6); t.setAttribute("y", p[1] - r * 1.2); t.setAttribute("fill", "#fff");
+    t.setAttribute("font-size", r * 2.4); t.setAttribute("font-weight", "700");
+    t.setAttribute("paint-order", "stroke"); t.setAttribute("stroke", "#000"); t.setAttribute("stroke-width", r / 2);
+    t.textContent = LABELS[i];
+    svg.append(c, t);
+  });
+  $("#steps").replaceChildren(...LABELS.map((l, i) => Object.assign(document.createElement("span"), {
+    className: "step" + (i < pts.length ? " done" : i === pts.length ? " next" : ""),
+    textContent: `${i + 1}. ${l}` })));
+  $("#preview").disabled = pts.length !== 4;
+  $("#savePanel").hidden = pts.length !== 4;
+}
+
+$("#preview").addEventListener("click", async () => {
+  const r = await fetch("/api/court-preview", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...params(), corners: pts }) });
+  if (!r.ok) { $("#err").textContent = "Vorschau fehlgeschlagen."; return; }
+  $("#img").src = URL.createObjectURL(await r.blob());
+});
+
+$("#save").addEventListener("click", async () => {
+  $("#saveErr").textContent = "";
+  const r = await fetch("/api/courts", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: $("#name").value || "platz", corners: pts }) });
+  const body = await r.json();
+  if (!r.ok) { $("#saveErr").textContent = body.error; return; }
+  location.href = "/?court=" + encodeURIComponent(body.path);
+});
+draw();
+</script>
+</body>
+</html>

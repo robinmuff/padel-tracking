@@ -1,0 +1,10 @@
+ultralytics>=8.4
+opencv-python>=4.10
+numpy>=1.26
+yt-dlp>=2026.8
+lap>=0.5.12
+flask>=3.1
+pillow>=10
+# nur macOS: Scoreboard-Texterkennung (Vision) und Neural Engine (Core ML)
+ocrmac>=1.0; sys_platform == "darwin"
+coremltools>=9.0; sys_platform == "darwin"
