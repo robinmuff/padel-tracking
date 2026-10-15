@@ -30,13 +30,13 @@ server/start.sh          # öffnet http://127.0.0.1:7984
 - **Analysen:** Fortschritt, Stoppen, Fortsetzen (Zwischenstand alle 5 Spielminuten),
   Neu auswerten, Dashboard.
 - **Platz kalibrieren:** die vier Platzecken auf einem Videobild anklicken
-  (einmal pro Kamera/Platz, gespeichert in `courts/`).
+  (einmal pro Kamera/Platz, gespeichert in `courts/`, nicht im Repository).
 
 ## Kommandozeile
 
 ```sh
 .venv/bin/python padel.py --video "https://www.youtube.com/live/<id>?t=3864" \
-    --end 1:04:43 --court courts/milano-court2.json --no-video
+    --end 1:04:43 --court courts/<name>.json --no-video
 ```
 
 Wichtige Optionen: `--start/--end`, `--no-video` (kein annotiertes Video rendern),
